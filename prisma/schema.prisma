@@ -1,0 +1,56 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Trade {
+  id        String   @id @default(uuid())
+  date      DateTime
+  symbol    String
+  type      String
+  strategy  String
+  lotSize   Float
+  entryPrice Float
+  exitPrice Float
+  pnl       Float
+  notes     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Account {
+  id            String    @id @default(uuid())
+  name          String
+  bankName      String
+  accountNumber String
+  balance       Float
+  expenses      Expense[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Expense {
+  id          String   @id @default(uuid())
+  date        DateTime
+  amount      Float
+  category    String
+  description String
+  accountId   String
+  account     Account  @relation(fields: [accountId], references: [id])
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Todo {
+  id         String   @id @default(uuid())
+  title      String
+  isComplete Boolean  @default(false)
+  priority   String
+  dueDate    DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
