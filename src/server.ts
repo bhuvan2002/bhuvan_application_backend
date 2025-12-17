@@ -1,17 +1,69 @@
 import express from 'express';
 import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
 const app = express();
 const prisma = new PrismaClient();
 const port = process.env.PORT || 3000;
+const SECRET_KEY = process.env.JWT_SECRET || 'your-secret-key';
 
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// Middleware to authenticate token
+const authenticateToken = (req: any, res: any, next: any) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, SECRET_KEY, (err: any, user: any) => {
+        if (err) return res.sendStatus(403);
+        req.user = user;
+        next();
+    });
+};
+
+// Auth Routes
+app.post('/api/auth/register', async (req, res) => {
+    try {
+        const { username, password, role } = req.body;
+        const hashedPassword = await bcrypt.hash(password, 10);
+        const user = await prisma.user.create({
+            data: { username, password: hashedPassword, role: role || 'TRADER' }
+        });
+        res.json({ message: 'User created successfully' });
+    } catch (error: any) {
+        console.error('Registration error:', error);
+        if (error.code === 'P2002') {
+            return res.status(409).json({ error: 'Username already taken' });
+        }
+        res.status(500).json({ error: 'User creation failed', details: error.message });
+    }
+});
+
+app.post('/api/auth/login', async (req, res) => {
+    try {
+        const { username, password } = req.body;
+        const user = await prisma.user.findUnique({ where: { username } });
+
+        if (!user || !await bcrypt.compare(password, user.password)) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY, { expiresIn: '24h' });
+        res.json({ token, role: user.role, username: user.username });
+    } catch (error) {
+        res.status(500).json({ error: 'Login failed' });
+    }
+});
+
+// Protected App Routes
+
 // Trades
-app.get('/api/trades', async (req, res) => {
+app.get('/api/trades', authenticateToken, async (req, res) => {
     try {
         const trades = await prisma.trade.findMany({ orderBy: { date: 'desc' } });
         res.json(trades);
@@ -20,7 +72,7 @@ app.get('/api/trades', async (req, res) => {
     }
 });
 
-app.post('/api/trades', async (req, res) => {
+app.post('/api/trades', authenticateToken, async (req, res) => {
     try {
         const trade = await prisma.trade.create({ data: req.body });
         res.json(trade);
@@ -29,7 +81,7 @@ app.post('/api/trades', async (req, res) => {
     }
 });
 
-app.delete('/api/trades/:id', async (req, res) => {
+app.delete('/api/trades/:id', authenticateToken, async (req, res) => {
     try {
         await prisma.trade.delete({ where: { id: req.params.id } });
         res.status(204).send();
@@ -39,7 +91,7 @@ app.delete('/api/trades/:id', async (req, res) => {
 });
 
 // Accounts
-app.get('/api/accounts', async (req, res) => {
+app.get('/api/accounts', authenticateToken, async (req, res) => {
     try {
         const accounts = await prisma.account.findMany();
         res.json(accounts);
@@ -48,7 +100,7 @@ app.get('/api/accounts', async (req, res) => {
     }
 });
 
-app.post('/api/accounts', async (req, res) => {
+app.post('/api/accounts', authenticateToken, async (req, res) => {
     try {
         const account = await prisma.account.create({ data: req.body });
         res.json(account);
@@ -58,7 +110,7 @@ app.post('/api/accounts', async (req, res) => {
 });
 
 // Expenses
-app.get('/api/expenses', async (req, res) => {
+app.get('/api/expenses', authenticateToken, async (req, res) => {
     try {
         const expenses = await prisma.expense.findMany({ orderBy: { date: 'desc' } });
         res.json(expenses);
@@ -67,7 +119,7 @@ app.get('/api/expenses', async (req, res) => {
     }
 });
 
-app.post('/api/expenses', async (req, res) => {
+app.post('/api/expenses', authenticateToken, async (req, res) => {
     try {
         const { accountId, amount, ...rest } = req.body;
 
@@ -87,7 +139,7 @@ app.post('/api/expenses', async (req, res) => {
 });
 
 // Todos
-app.get('/api/todos', async (req, res) => {
+app.get('/api/todos', authenticateToken, async (req, res) => {
     try {
         const todos = await prisma.todo.findMany({ orderBy: { dueDate: 'asc' } });
         res.json(todos);
@@ -96,16 +148,27 @@ app.get('/api/todos', async (req, res) => {
     }
 });
 
-app.post('/api/todos', async (req, res) => {
+app.post('/api/todos', authenticateToken, async (req, res) => {
     try {
-        const todo = await prisma.todo.create({ data: req.body });
+        console.log('Received todo data:', req.body);
+        let { dueDate, ...rest } = req.body;
+
+        // Ensure dueDate is legitimate ISO-8601 string for Prisma
+        if (dueDate && typeof dueDate === 'string' && !dueDate.includes('T')) {
+            dueDate = new Date(dueDate).toISOString();
+        }
+
+        const todo = await prisma.todo.create({
+            data: { ...rest, dueDate }
+        });
         res.json(todo);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to create todo' });
+        console.error('Error creating todo:', error);
+        res.status(500).json({ error: 'Failed to create todo', details: error instanceof Error ? error.message : String(error) });
     }
 });
 
-app.patch('/api/todos/:id', async (req, res) => {
+app.patch('/api/todos/:id', authenticateToken, async (req, res) => {
     try {
         const todo = await prisma.todo.update({
             where: { id: req.params.id },
@@ -117,12 +180,59 @@ app.patch('/api/todos/:id', async (req, res) => {
     }
 });
 
-app.delete('/api/todos/:id', async (req, res) => {
+app.delete('/api/todos/:id', authenticateToken, async (req, res) => {
     try {
         await prisma.todo.delete({ where: { id: req.params.id } });
         res.status(204).send();
     } catch (error) {
         res.status(500).json({ error: 'Failed to delete todo' });
+    }
+});
+
+// Plans
+app.get('/api/plans', authenticateToken, async (req, res) => {
+    try {
+        const { date } = req.query;
+        if (!date) {
+            return res.status(400).json({ error: 'Date query parameter is required' });
+        }
+        const plans = await prisma.plan.findMany({
+            where: { date: String(date) },
+            orderBy: { startTime: 'asc' }
+        });
+        res.json(plans);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch plans' });
+    }
+});
+
+app.post('/api/plans', authenticateToken, async (req, res) => {
+    try {
+        const plan = await prisma.plan.create({ data: req.body });
+        res.json(plan);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create plan' });
+    }
+});
+
+app.put('/api/plans/:id', authenticateToken, async (req, res) => {
+    try {
+        const plan = await prisma.plan.update({
+            where: { id: req.params.id },
+            data: req.body
+        });
+        res.json(plan);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update plan' });
+    }
+});
+
+app.delete('/api/plans/:id', authenticateToken, async (req, res) => {
+    try {
+        await prisma.plan.delete({ where: { id: req.params.id } });
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete plan' });
     }
 });
 
