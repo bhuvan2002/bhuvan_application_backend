@@ -109,6 +109,27 @@ app.post('/api/accounts', authenticateToken, async (req, res) => {
     }
 });
 
+app.put('/api/accounts/:id', authenticateToken, async (req, res) => {
+    try {
+        const account = await prisma.account.update({
+            where: { id: req.params.id },
+            data: req.body
+        });
+        res.json(account);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update account' });
+    }
+});
+
+app.delete('/api/accounts/:id', authenticateToken, async (req, res) => {
+    try {
+        await prisma.account.delete({ where: { id: req.params.id } });
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete account' });
+    }
+});
+
 // Expenses
 app.get('/api/expenses', authenticateToken, async (req, res) => {
     try {

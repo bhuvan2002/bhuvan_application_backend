@@ -36,18 +36,24 @@ app.use((0, cors_1.default)());
 app.use(express_1.default.json());
 // Middleware to authenticate token
 const authenticateToken = (req, res, next) => {
+    // Skip authentication for auth routes
+    if (req.path.startsWith('/auth/')) {
+        return next();
+    }
     const authHeader = req.headers['authorization'];
     const token = authHeader && authHeader.split(' ')[1];
-    if (!token)
-        return res.sendStatus(401);
+    if (!token) {
+        return res.status(401).json({ error: 'Access denied. No token provided.' });
+    }
     jsonwebtoken_1.default.verify(token, SECRET_KEY, (err, user) => {
-        if (err)
-            return res.sendStatus(403);
+        if (err) {
+            return res.status(403).json({ error: 'Invalid or expired token.' });
+        }
         req.user = user;
         next();
     });
 };
-// Auth Routes
+// Auth Routes (Public)
 app.post('/api/auth/register', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { username, password, role } = req.body;
@@ -58,7 +64,11 @@ app.post('/api/auth/register', (req, res) => __awaiter(void 0, void 0, void 0, f
         res.json({ message: 'User created successfully' });
     }
     catch (error) {
-        res.status(500).json({ error: 'User creation failed' });
+        console.error('Registration error:', error);
+        if (error.code === 'P2002') {
+            return res.status(409).json({ error: 'Username already taken' });
+        }
+        res.status(500).json({ error: 'User creation failed', details: error.message });
     }
 }));
 app.post('/api/auth/login', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
@@ -75,28 +85,40 @@ app.post('/api/auth/login', (req, res) => __awaiter(void 0, void 0, void 0, func
         res.status(500).json({ error: 'Login failed' });
     }
 }));
+// Apply authentication middleware to all protected /api routes
+app.use('/api', authenticateToken);
 // Protected App Routes
 // Trades
-app.get('/api/trades', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.get('/api/trades', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const trades = yield prisma.trade.findMany({ orderBy: { date: 'desc' } });
+        const trades = yield prisma.trade.findMany({
+            where: { userId: req.user.id },
+            orderBy: { date: 'desc' }
+        });
         res.json(trades);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to fetch trades' });
     }
 }));
-app.post('/api/trades', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/api/trades', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const trade = yield prisma.trade.create({ data: req.body });
+        const trade = yield prisma.trade.create({
+            data: Object.assign(Object.assign({}, req.body), { userId: req.user.id })
+        });
         res.json(trade);
     }
     catch (error) {
-        res.status(500).json({ error: 'Failed to create trade: ' + error });
+        res.status(500).json({ error: 'Failed to create trade' });
     }
 }));
-app.delete('/api/trades/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.delete('/api/trades/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        // Ensure the trade belongs to the user before deleting
+        const trade = yield prisma.trade.findUnique({ where: { id: req.params.id } });
+        if (!trade || trade.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to delete this trade' });
+        }
         yield prisma.trade.delete({ where: { id: req.params.id } });
         res.status(204).send();
     }
@@ -105,37 +127,79 @@ app.delete('/api/trades/:id', authenticateToken, (req, res) => __awaiter(void 0,
     }
 }));
 // Accounts
-app.get('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.get('/api/accounts', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const accounts = yield prisma.account.findMany();
+        const accounts = yield prisma.account.findMany({
+            where: { userId: req.user.id }
+        });
         res.json(accounts);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to fetch accounts' });
     }
 }));
-app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/api/accounts', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const account = yield prisma.account.create({ data: req.body });
+        const account = yield prisma.account.create({
+            data: Object.assign(Object.assign({}, req.body), { userId: req.user.id })
+        });
         res.json(account);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to create account' });
     }
 }));
-// Expenses
-app.get('/api/expenses', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.put('/api/accounts/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const expenses = yield prisma.expense.findMany({ orderBy: { date: 'desc' } });
+        const account = yield prisma.account.findUnique({ where: { id: req.params.id } });
+        if (!account || account.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to update this account' });
+        }
+        const updatedAccount = yield prisma.account.update({
+            where: { id: req.params.id },
+            data: req.body
+        });
+        res.json(updatedAccount);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to update account' });
+    }
+}));
+app.delete('/api/accounts/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const account = yield prisma.account.findUnique({ where: { id: req.params.id } });
+        if (!account || account.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to delete this account' });
+        }
+        yield prisma.account.delete({ where: { id: req.params.id } });
+        res.status(204).send();
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to delete account' });
+    }
+}));
+// Expenses
+app.get('/api/expenses', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const expenses = yield prisma.expense.findMany({
+            where: { account: { userId: req.user.id } },
+            orderBy: { date: 'desc' },
+            include: { account: true }
+        });
         res.json(expenses);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to fetch expenses' });
     }
 }));
-app.post('/api/expenses', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/api/expenses', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const _a = req.body, { accountId, amount } = _a, rest = __rest(_a, ["accountId", "amount"]);
+        // Verify account ownership
+        const account = yield prisma.account.findUnique({ where: { id: accountId } });
+        if (!account || account.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to add expense to this account' });
+        }
         // Transaction to create expense and update account balance
         const [expense] = yield prisma.$transaction([
             prisma.expense.create({ data: Object.assign({ accountId, amount }, rest) }),
@@ -151,47 +215,57 @@ app.post('/api/expenses', authenticateToken, (req, res) => __awaiter(void 0, voi
     }
 }));
 // Todos
-app.get('/api/todos', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.get('/api/todos', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const todos = yield prisma.todo.findMany({ orderBy: { dueDate: 'asc' } });
+        const todos = yield prisma.todo.findMany({
+            where: { userId: req.user.id },
+            orderBy: { dueDate: 'asc' }
+        });
         res.json(todos);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to fetch todos' });
     }
 }));
-app.post('/api/todos', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/api/todos', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        console.log('Received todo data:', req.body);
         let _a = req.body, { dueDate } = _a, rest = __rest(_a, ["dueDate"]);
         // Ensure dueDate is legitimate ISO-8601 string for Prisma
         if (dueDate && typeof dueDate === 'string' && !dueDate.includes('T')) {
             dueDate = new Date(dueDate).toISOString();
         }
         const todo = yield prisma.todo.create({
-            data: Object.assign(Object.assign({}, rest), { dueDate })
+            data: Object.assign(Object.assign({}, rest), { dueDate, userId: req.user.id })
         });
         res.json(todo);
     }
     catch (error) {
         console.error('Error creating todo:', error);
-        res.status(500).json({ error: 'Failed to create todo', details: error instanceof Error ? error.message : String(error) });
+        res.status(500).json({ error: 'Failed to create todo' });
     }
 }));
-app.patch('/api/todos/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.patch('/api/todos/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const todo = yield prisma.todo.update({
+        const todo = yield prisma.todo.findUnique({ where: { id: req.params.id } });
+        if (!todo || todo.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to update this todo' });
+        }
+        const updatedTodo = yield prisma.todo.update({
             where: { id: req.params.id },
             data: req.body
         });
-        res.json(todo);
+        res.json(updatedTodo);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to update todo' });
     }
 }));
-app.delete('/api/todos/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.delete('/api/todos/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        const todo = yield prisma.todo.findUnique({ where: { id: req.params.id } });
+        if (!todo || todo.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to delete this todo' });
+        }
         yield prisma.todo.delete({ where: { id: req.params.id } });
         res.status(204).send();
     }
@@ -200,14 +274,17 @@ app.delete('/api/todos/:id', authenticateToken, (req, res) => __awaiter(void 0, 
     }
 }));
 // Plans
-app.get('/api/plans', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.get('/api/plans', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const { date } = req.query;
         if (!date) {
             return res.status(400).json({ error: 'Date query parameter is required' });
         }
         const plans = yield prisma.plan.findMany({
-            where: { date: String(date) },
+            where: {
+                userId: req.user.id,
+                date: String(date)
+            },
             orderBy: { startTime: 'asc' }
         });
         res.json(plans);
@@ -216,29 +293,39 @@ app.get('/api/plans', authenticateToken, (req, res) => __awaiter(void 0, void 0,
         res.status(500).json({ error: 'Failed to fetch plans' });
     }
 }));
-app.post('/api/plans', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.post('/api/plans', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const plan = yield prisma.plan.create({ data: req.body });
+        const plan = yield prisma.plan.create({
+            data: Object.assign(Object.assign({}, req.body), { userId: req.user.id })
+        });
         res.json(plan);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to create plan' });
     }
 }));
-app.put('/api/plans/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.put('/api/plans/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const plan = yield prisma.plan.update({
+        const plan = yield prisma.plan.findUnique({ where: { id: req.params.id } });
+        if (!plan || plan.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to update this plan' });
+        }
+        const updatedPlan = yield prisma.plan.update({
             where: { id: req.params.id },
             data: req.body
         });
-        res.json(plan);
+        res.json(updatedPlan);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to update plan' });
     }
 }));
-app.delete('/api/plans/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+app.delete('/api/plans/:id', (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        const plan = yield prisma.plan.findUnique({ where: { id: req.params.id } });
+        if (!plan || plan.userId !== req.user.id) {
+            return res.status(403).json({ error: 'Unauthorized to delete this plan' });
+        }
         yield prisma.plan.delete({ where: { id: req.params.id } });
         res.status(204).send();
     }

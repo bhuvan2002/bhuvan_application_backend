@@ -8,18 +8,20 @@ datasource db {
 }
 
 model Trade {
-  id        String   @id @default(uuid())
-  date      DateTime
-  symbol    String
-  type      String
-  strategy  String
-  lotSize   Float
+  id         String   @id @default(uuid())
+  date       DateTime
+  symbol     String
+  type       String
+  strategy   String
+  lotSize    Float
   entryPrice Float
-  exitPrice Float
-  pnl       Float
-  notes     String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  exitPrice  Float
+  pnl        Float
+  notes      String
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id])
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
 
 model Account {
@@ -27,7 +29,12 @@ model Account {
   name          String
   bankName      String
   accountNumber String
+  ifsc          String?
+  mobileAppKey  String?
+  atmKey        String?
   balance       Float
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
   expenses      Expense[]
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
@@ -52,6 +59,8 @@ model Todo {
   isComplete Boolean  @default(false)
   priority   String
   dueDate    DateTime
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id])
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 }
@@ -64,13 +73,19 @@ model Plan {
   endTime   String 
   notes     String
   date      String   // Storing as YYYY-MM-DD string for simplicity as per FE logic
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
 model User {
-  id       String @id @default(uuid())
-  username String @unique
-  password String
-  role     String @default("TRADER") // 'TRADER' or 'PARENT'
+  id        String    @id @default(uuid())
+  username  String    @unique
+  password  String
+  role      String    @default("TRADER") // 'TRADER' or 'PARENT'
+  trades    Trade[]
+  accounts  Account[]
+  todos     Todo[]
+  plans     Plan[]
 }
