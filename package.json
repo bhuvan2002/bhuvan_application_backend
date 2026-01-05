@@ -6,7 +6,10 @@
         "start": "node dist/server.js",
         "dev": "ts-node src/server.ts",
         "build": "tsc",
-        "postinstall": "npm run build"
+        "postinstall": "npx prisma generate && npm run build"
+    },
+    "engines": {
+        "node": ">=18.0.0"
     },
     "dependencies": {
         "@prisma/client": "^6.0.1",
