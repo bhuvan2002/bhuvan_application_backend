@@ -11,6 +11,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: process.env.DATABASE_URL || "postgresql://unused:unused@localhost:5432/unused",
+    url: process.env.DATABASE_URL || "postgresql://postgres:Bhuvan@123@localhost:5432/bhuvan_app?schema=public",
   },
 });
