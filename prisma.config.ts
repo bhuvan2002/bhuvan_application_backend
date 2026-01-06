@@ -4,10 +4,15 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
-// Force a fallback for DATABASE_URL if it's not set. 
-// This prevents Prisma from crashing during the build phase on Heroku.
+// Fallback for DATABASE_URL if it's not set, but ONLY in non-production environments.
+// This prevents Prisma from masking configuration errors on Heroku behind connection failures to localhost.
 if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = "postgresql://postgres:Bhuvan@123@localhost:5432/bhuvan_app?schema=public";
+  const isHeroku = !!process.env.DYNO;
+  const isProduction = process.env.NODE_ENV === "production";
+
+  if (!isHeroku && !isProduction) {
+    process.env.DATABASE_URL = "postgresql://postgres:Bhuvan@123@localhost:5432/bhuvan_app?schema=public";
+  }
 }
 
 export default defineConfig({
@@ -17,6 +22,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: process.env.DATABASE_URL,
+    url: process.env.DATABASE_URL || "",
   },
 });
