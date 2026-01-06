@@ -36,11 +36,20 @@ app.post('/api/auth/register', async (req, res) => {
         });
         res.json({ message: 'User created successfully' });
     } catch (error: any) {
-        console.error('Registration error:', error);
+        console.error('Registration error details:', {
+            message: error.message,
+            code: error.code,
+            meta: error.meta,
+            stack: error.stack
+        });
         if (error.code === 'P2002') {
             return res.status(409).json({ error: 'Username already taken' });
         }
-        res.status(500).json({ error: 'User creation failed', details: error.message });
+        res.status(500).json({
+            error: 'User creation failed',
+            details: error.message,
+            code: error.code
+        });
     }
 });
 
@@ -55,8 +64,34 @@ app.post('/api/auth/login', async (req, res) => {
 
         const token = jwt.sign({ id: user.id, username: user.username, role: user.role }, SECRET_KEY, { expiresIn: '24h' });
         res.json({ token, role: user.role, username: user.username });
-    } catch (error) {
-        res.status(500).json({ error: 'Login failed' });
+    } catch (error: any) {
+        console.error('Login error details:', {
+            message: error.message,
+            code: error.code,
+            meta: error.meta,
+            stack: error.stack
+        });
+        res.status(500).json({
+            error: 'Login failed',
+            details: error.message,
+            code: error.code
+        });
+    }
+});
+
+// Health check endpoint to verify DB connection
+app.get('/api/health', async (req, res) => {
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        res.json({ status: 'ok', database: 'connected' });
+    } catch (error: any) {
+        console.error('Health check failed:', error);
+        res.status(500).json({
+            status: 'error',
+            database: 'disconnected',
+            details: error.message,
+            code: error.code
+        });
     }
 });
 
