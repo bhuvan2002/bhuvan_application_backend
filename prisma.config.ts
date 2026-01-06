@@ -9,6 +9,6 @@ export default defineConfig({
   },
   engine: "classic",
   datasource: {
-    url: process.env.DATABASE_URL || "postgresql://postgres:Bhuvan@123@localhost:5432/bhuvan_app?schema=public",
+    url: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_Tga0Ebx4AHCZ@ep-restless-truth-a843l05d-pooler.eastus2.azure.neon.tech/neondb?sslmode=require&channel_binding=require',
   },
 });
