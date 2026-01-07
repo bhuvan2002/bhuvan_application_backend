@@ -46,6 +46,7 @@ model Expense {
   amount      Float
   category    String
   description String
+  type        String   @default("DEBIT") // "DEBIT" or "CREDIT"
   accountId   String
   account     Account  @relation(fields: [accountId], references: [id])
   createdAt   DateTime @default(now())

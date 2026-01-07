@@ -177,19 +177,31 @@ app.get('/api/expenses', authenticateToken, async (req, res) => {
 
 app.post('/api/expenses', authenticateToken, async (req, res) => {
     try {
-        const { accountId, amount, ...rest } = req.body;
+        const { accountId, amount, type, ...rest } = req.body;
 
         // Transaction to create expense and update account balance
         const [expense] = await prisma.$transaction([
-            prisma.expense.create({ data: { accountId, amount, ...rest } }),
+            prisma.expense.create({
+                data: {
+                    accountId,
+                    amount,
+                    type: type || 'DEBIT',
+                    ...rest
+                }
+            }),
             prisma.account.update({
                 where: { id: accountId },
-                data: { balance: { decrement: amount } }
+                data: {
+                    balance: type === 'CREDIT'
+                        ? { increment: amount }
+                        : { decrement: amount }
+                }
             })
         ]);
 
         res.json(expense);
     } catch (error) {
+        console.error('Error creating expense:', error);
         res.status(500).json({ error: 'Failed to create expense' });
     }
 });
