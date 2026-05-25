@@ -137,7 +137,13 @@ app.get('/api/accounts', authenticateToken, async (req, res) => {
 
 app.post('/api/accounts', authenticateToken, async (req, res) => {
     try {
-        const account = await prisma.account.create({ data: req.body });
+        let data = { ...req.body };
+        if (data.loanEndDate) data.loanEndDate = new Date(data.loanEndDate).toISOString();
+        if (data.dueDate) data.dueDate = Number(data.dueDate);
+        if (data.creditLimit) data.creditLimit = Number(data.creditLimit);
+        if (data.balance) data.balance = Number(data.balance);
+
+        const account = await prisma.account.create({ data });
         res.json(account);
     } catch (error) {
         res.status(500).json({ error: 'Failed to create account' });
@@ -146,9 +152,15 @@ app.post('/api/accounts', authenticateToken, async (req, res) => {
 
 app.put('/api/accounts/:id', authenticateToken, async (req, res) => {
     try {
+        let data = { ...req.body };
+        if (data.loanEndDate) data.loanEndDate = new Date(data.loanEndDate).toISOString();
+        if (data.dueDate) data.dueDate = Number(data.dueDate);
+        if (data.creditLimit) data.creditLimit = Number(data.creditLimit);
+        if (data.balance !== undefined) data.balance = Number(data.balance);
+
         const account = await prisma.account.update({
             where: { id: req.params.id },
-            data: req.body
+            data
         });
         res.json(account);
     } catch (error) {
@@ -178,7 +190,7 @@ app.get('/api/expenses', authenticateToken, async (req, res) => {
 app.post('/api/expenses', authenticateToken, async (req, res) => {
     try {
         console.log('Received expense data:', req.body);
-        let { accountId, amount, type, date, ...rest } = req.body;
+        let { accountId, toAccountId, amount, type, date, ...rest } = req.body;
 
         // Ensure date is legitimate ISO-8601 string for Prisma
         if (date && typeof date === 'string' && !date.includes('T')) {
@@ -187,26 +199,67 @@ app.post('/api/expenses', authenticateToken, async (req, res) => {
 
         const numAmount = Number(amount);
 
-        // Transaction to create expense and update account balance
-        const [expense] = await prisma.$transaction([
-            prisma.expense.create({
-                data: {
-                    accountId,
-                    amount: numAmount,
-                    type: type || 'DEBIT',
-                    date,
-                    ...rest
-                }
-            }),
-            prisma.account.update({
-                where: { id: accountId },
-                data: {
-                    balance: type === 'CREDIT'
-                        ? { increment: numAmount }
-                        : { decrement: numAmount }
-                }
-            })
-        ]);
+        const account = await prisma.account.findUnique({ where: { id: accountId } });
+        if (!account) return res.status(404).json({ error: 'Account not found' });
+        
+        const isDebtAccount = account.type === 'CREDIT_CARD' || account.type === 'LOAN';
+
+        let operations = [];
+
+        if (type === 'TRANSFER' && toAccountId) {
+            const toAccount = await prisma.account.findUnique({ where: { id: toAccountId } });
+            if (!toAccount) return res.status(404).json({ error: 'To Account not found' });
+            
+            const isToDebtAccount = toAccount.type === 'CREDIT_CARD' || toAccount.type === 'LOAN';
+            
+            const fromOperation = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+            const toOperation = isToDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+
+            operations.push(
+                prisma.expense.create({
+                    data: {
+                        accountId,
+                        toAccountId,
+                        amount: numAmount,
+                        type: 'TRANSFER',
+                        date,
+                        ...rest
+                    }
+                }),
+                prisma.account.update({
+                    where: { id: accountId },
+                    data: { balance: fromOperation }
+                }),
+                prisma.account.update({
+                    where: { id: toAccountId },
+                    data: { balance: toOperation }
+                })
+            );
+        } else {
+            const incrementOp = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+            const decrementOp = isDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+
+            operations.push(
+                prisma.expense.create({
+                    data: {
+                        accountId,
+                        amount: numAmount,
+                        type: type || 'DEBIT',
+                        date,
+                        ...rest
+                    }
+                }),
+                prisma.account.update({
+                    where: { id: accountId },
+                    data: {
+                        balance: type === 'CREDIT' ? decrementOp : incrementOp
+                    }
+                })
+            );
+        }
+
+        const results = await prisma.$transaction(operations);
+        const expense = results[0];
 
         res.json(expense);
     } catch (error: any) {

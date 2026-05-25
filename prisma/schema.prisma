@@ -33,6 +33,10 @@ model Account {
   mobileAppKey  String?
   atmKey        String?
   balance       Float
+  type          String    @default("BANK") // "BANK", "CREDIT_CARD", "LOAN"
+  creditLimit   Float?
+  dueDate       Int?
+  loanEndDate   DateTime?
   userId        String?
   user          User?     @relation(fields: [userId], references: [id])
   expenses      Expense[]
@@ -46,9 +50,10 @@ model Expense {
   amount      Float
   category    String
   description String
-  type        String   @default("DEBIT") // "DEBIT" or "CREDIT"
+  type        String   @default("DEBIT") // "DEBIT", "CREDIT", "TRANSFER"
   accountId   String
   account     Account  @relation(fields: [accountId], references: [id])
+  toAccountId String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
