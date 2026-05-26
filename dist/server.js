@@ -269,6 +269,61 @@ app.post('/api/expenses', authenticateToken, (req, res) => __awaiter(void 0, voi
         });
     }
 }));
+app.post('/api/expenses/bulk', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { expenses } = req.body;
+        if (!Array.isArray(expenses))
+            return res.status(400).json({ error: 'Expected an array of expenses' });
+        let operations = [];
+        for (let data of expenses) {
+            let { accountId, toAccountId, amount, type, date } = data, rest = __rest(data, ["accountId", "toAccountId", "amount", "type", "date"]);
+            if (date && typeof date === 'string' && !date.includes('T')) {
+                date = new Date(date).toISOString();
+            }
+            const numAmount = Number(amount);
+            const account = yield prisma.account.findUnique({ where: { id: accountId } });
+            if (!account)
+                continue;
+            const isDebtAccount = account.type === 'CREDIT_CARD' || account.type === 'LOAN';
+            if (type === 'TRANSFER' && toAccountId) {
+                const toAccount = yield prisma.account.findUnique({ where: { id: toAccountId } });
+                if (!toAccount)
+                    continue;
+                const isToDebtAccount = toAccount.type === 'CREDIT_CARD' || toAccount.type === 'LOAN';
+                const fromOperation = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+                const toOperation = isToDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+                operations.push(prisma.expense.create({
+                    data: Object.assign({ accountId,
+                        toAccountId, amount: numAmount, type: 'TRANSFER', date }, rest)
+                }), prisma.account.update({
+                    where: { id: accountId },
+                    data: { balance: fromOperation }
+                }), prisma.account.update({
+                    where: { id: toAccountId },
+                    data: { balance: toOperation }
+                }));
+            }
+            else {
+                const incrementOp = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+                const decrementOp = isDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+                operations.push(prisma.expense.create({
+                    data: Object.assign({ accountId, amount: numAmount, type: type || 'DEBIT', date }, rest)
+                }), prisma.account.update({
+                    where: { id: accountId },
+                    data: {
+                        balance: type === 'CREDIT' ? decrementOp : incrementOp
+                    }
+                }));
+            }
+        }
+        yield prisma.$transaction(operations);
+        res.json({ message: 'Bulk expenses added successfully', count: expenses.length });
+    }
+    catch (error) {
+        console.error('Add bulk expenses error:', error);
+        res.status(500).json({ error: 'Failed to add bulk expenses', details: error.message });
+    }
+}));
 // Todos
 app.get('/api/todos', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
