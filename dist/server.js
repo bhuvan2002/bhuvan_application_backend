@@ -155,7 +155,16 @@ app.get('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, void
 }));
 app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const account = yield prisma.account.create({ data: req.body });
+        let data = Object.assign({}, req.body);
+        if (data.loanEndDate)
+            data.loanEndDate = new Date(data.loanEndDate).toISOString();
+        if (data.dueDate)
+            data.dueDate = Number(data.dueDate);
+        if (data.creditLimit)
+            data.creditLimit = Number(data.creditLimit);
+        if (data.balance)
+            data.balance = Number(data.balance);
+        const account = yield prisma.account.create({ data });
         res.json(account);
     }
     catch (error) {
@@ -164,9 +173,18 @@ app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, voi
 }));
 app.put('/api/accounts/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
+        let data = Object.assign({}, req.body);
+        if (data.loanEndDate)
+            data.loanEndDate = new Date(data.loanEndDate).toISOString();
+        if (data.dueDate)
+            data.dueDate = Number(data.dueDate);
+        if (data.creditLimit)
+            data.creditLimit = Number(data.creditLimit);
+        if (data.balance !== undefined)
+            data.balance = Number(data.balance);
         const account = yield prisma.account.update({
             where: { id: req.params.id },
-            data: req.body
+            data
         });
         res.json(account);
     }
@@ -195,27 +213,60 @@ app.get('/api/expenses', authenticateToken, (req, res) => __awaiter(void 0, void
 }));
 app.post('/api/expenses', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const _a = req.body, { accountId, amount, type } = _a, rest = __rest(_a, ["accountId", "amount", "type"]);
-        // Transaction to create expense and update account balance
-        const [expense] = yield prisma.$transaction([
-            prisma.expense.create({
+        console.log('Received expense data:', req.body);
+        let _a = req.body, { accountId, toAccountId, amount, type, date } = _a, rest = __rest(_a, ["accountId", "toAccountId", "amount", "type", "date"]);
+        // Ensure date is legitimate ISO-8601 string for Prisma
+        if (date && typeof date === 'string' && !date.includes('T')) {
+            date = new Date(date).toISOString();
+        }
+        const numAmount = Number(amount);
+        const account = yield prisma.account.findUnique({ where: { id: accountId } });
+        if (!account)
+            return res.status(404).json({ error: 'Account not found' });
+        const isDebtAccount = account.type === 'CREDIT_CARD' || account.type === 'LOAN';
+        let operations = [];
+        if (type === 'TRANSFER' && toAccountId) {
+            const toAccount = yield prisma.account.findUnique({ where: { id: toAccountId } });
+            if (!toAccount)
+                return res.status(404).json({ error: 'To Account not found' });
+            const isToDebtAccount = toAccount.type === 'CREDIT_CARD' || toAccount.type === 'LOAN';
+            const fromOperation = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+            const toOperation = isToDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+            operations.push(prisma.expense.create({
                 data: Object.assign({ accountId,
-                    amount, type: type || 'DEBIT' }, rest)
-            }),
-            prisma.account.update({
+                    toAccountId, amount: numAmount, type: 'TRANSFER', date }, rest)
+            }), prisma.account.update({
+                where: { id: accountId },
+                data: { balance: fromOperation }
+            }), prisma.account.update({
+                where: { id: toAccountId },
+                data: { balance: toOperation }
+            }));
+        }
+        else {
+            const incrementOp = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+            const decrementOp = isDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+            operations.push(prisma.expense.create({
+                data: Object.assign({ accountId, amount: numAmount, type: type || 'DEBIT', date }, rest)
+            }), prisma.account.update({
                 where: { id: accountId },
                 data: {
-                    balance: type === 'CREDIT'
-                        ? { increment: amount }
-                        : { decrement: amount }
+                    balance: type === 'CREDIT' ? decrementOp : incrementOp
                 }
-            })
-        ]);
+            }));
+        }
+        const results = yield prisma.$transaction(operations);
+        const expense = results[0];
         res.json(expense);
     }
     catch (error) {
         console.error('Error creating expense:', error);
-        res.status(500).json({ error: 'Failed to create expense' });
+        res.status(500).json({
+            error: 'Failed to create expense',
+            details: error.message,
+            code: error.code,
+            meta: error.meta
+        });
     }
 }));
 // Todos

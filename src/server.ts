@@ -201,7 +201,7 @@ app.post('/api/expenses', authenticateToken, async (req, res) => {
 
         const account = await prisma.account.findUnique({ where: { id: accountId } });
         if (!account) return res.status(404).json({ error: 'Account not found' });
-        
+
         const isDebtAccount = account.type === 'CREDIT_CARD' || account.type === 'LOAN';
 
         let operations = [];
@@ -209,9 +209,9 @@ app.post('/api/expenses', authenticateToken, async (req, res) => {
         if (type === 'TRANSFER' && toAccountId) {
             const toAccount = await prisma.account.findUnique({ where: { id: toAccountId } });
             if (!toAccount) return res.status(404).json({ error: 'To Account not found' });
-            
+
             const isToDebtAccount = toAccount.type === 'CREDIT_CARD' || toAccount.type === 'LOAN';
-            
+
             const fromOperation = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
             const toOperation = isToDebtAccount ? { decrement: numAmount } : { increment: numAmount };
 
@@ -270,6 +270,88 @@ app.post('/api/expenses', authenticateToken, async (req, res) => {
             code: error.code,
             meta: error.meta
         });
+    }
+});
+
+app.post('/api/expenses/bulk', authenticateToken, async (req, res) => {
+    try {
+        const { expenses } = req.body;
+        if (!Array.isArray(expenses)) return res.status(400).json({ error: 'Expected an array of expenses' });
+
+        let operations: any[] = [];
+
+        for (let data of expenses) {
+            let { accountId, toAccountId, amount, type, date, ...rest } = data;
+
+            if (date && typeof date === 'string' && !date.includes('T')) {
+                date = new Date(date).toISOString();
+            }
+
+            const numAmount = Number(amount);
+
+            const account = await prisma.account.findUnique({ where: { id: accountId } });
+            if (!account) continue;
+            
+            const isDebtAccount = account.type === 'CREDIT_CARD' || account.type === 'LOAN';
+
+            if (type === 'TRANSFER' && toAccountId) {
+                const toAccount = await prisma.account.findUnique({ where: { id: toAccountId } });
+                if (!toAccount) continue;
+                
+                const isToDebtAccount = toAccount.type === 'CREDIT_CARD' || toAccount.type === 'LOAN';
+                
+                const fromOperation = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+                const toOperation = isToDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+
+                operations.push(
+                    prisma.expense.create({
+                        data: {
+                            accountId,
+                            toAccountId,
+                            amount: numAmount,
+                            type: 'TRANSFER',
+                            date,
+                            ...rest
+                        }
+                    }),
+                    prisma.account.update({
+                        where: { id: accountId },
+                        data: { balance: fromOperation }
+                    }),
+                    prisma.account.update({
+                        where: { id: toAccountId },
+                        data: { balance: toOperation }
+                    })
+                );
+            } else {
+                const incrementOp = isDebtAccount ? { increment: numAmount } : { decrement: numAmount };
+                const decrementOp = isDebtAccount ? { decrement: numAmount } : { increment: numAmount };
+
+                operations.push(
+                    prisma.expense.create({
+                        data: {
+                            accountId,
+                            amount: numAmount,
+                            type: type || 'DEBIT',
+                            date,
+                            ...rest
+                        }
+                    }),
+                    prisma.account.update({
+                        where: { id: accountId },
+                        data: {
+                            balance: type === 'CREDIT' ? decrementOp : incrementOp
+                        }
+                    })
+                );
+            }
+        }
+
+        await prisma.$transaction(operations);
+        res.json({ message: 'Bulk expenses added successfully', count: expenses.length });
+    } catch (error: any) {
+        console.error('Add bulk expenses error:', error);
+        res.status(500).json({ error: 'Failed to add bulk expenses', details: error.message });
     }
 });
 
