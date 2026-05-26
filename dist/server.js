@@ -28,6 +28,7 @@ const cors_1 = __importDefault(require("cors"));
 const client_1 = require("@prisma/client");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
+const financeInsightService_1 = require("./services/ai/financeInsightService");
 const app = (0, express_1.default)();
 const prisma = new client_1.PrismaClient();
 const port = process.env.PORT || 3000;
@@ -322,6 +323,22 @@ app.post('/api/expenses/bulk', authenticateToken, (req, res) => __awaiter(void 0
     catch (error) {
         console.error('Add bulk expenses error:', error);
         res.status(500).json({ error: 'Failed to add bulk expenses', details: error.message });
+    }
+}));
+// AI Insights
+app.post('/api/ai/analyze-finance', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    var _a;
+    try {
+        const userId = (_a = req.user) === null || _a === void 0 ? void 0 : _a.id;
+        if (!userId) {
+            return res.status(400).json({ success: false, error: 'User ID is missing from token' });
+        }
+        const data = yield (0, financeInsightService_1.generateFinancialInsights)(userId);
+        res.json({ success: true, data });
+    }
+    catch (error) {
+        console.error('AI Analysis error:', error);
+        res.status(500).json({ success: false, error: 'Failed to generate AI insights', details: error.message });
     }
 }));
 // Todos
