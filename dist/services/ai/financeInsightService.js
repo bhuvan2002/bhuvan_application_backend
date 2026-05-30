@@ -15,7 +15,6 @@ const expenseAnalytics_1 = require("../analytics/expenseAnalytics");
 const incomeAnalytics_1 = require("../analytics/incomeAnalytics");
 const trendAnalytics_1 = require("../analytics/trendAnalytics");
 const financePromptBuilder_1 = require("./financePromptBuilder");
-const ollamaService_1 = require("./ollamaService");
 const prisma = new client_1.PrismaClient();
 const generateFinancialInsights = (userId) => __awaiter(void 0, void 0, void 0, function* () {
     // 1. Fetch transactions for the last 60 days to compare current month vs last month
@@ -53,23 +52,11 @@ const generateFinancialInsights = (userId) => __awaiter(void 0, void 0, void 0, 
     };
     // 3. Build Prompt
     const prompt = (0, financePromptBuilder_1.buildFinancePrompt)(summaryData);
-    // 4. Call Ollama
-    let insightsJson = { insights: [] };
-    try {
-        const aiResponseText = yield (0, ollamaService_1.generateCompletion)(prompt);
-        // Try to parse the response, handling potential formatting issues from LLM
-        const cleanedResponse = aiResponseText.replace(/```json/g, '').replace(/```/g, '').trim();
-        insightsJson = JSON.parse(cleanedResponse);
-    }
-    catch (error) {
-        console.error("Failed to parse AI insights or contact Ollama", error);
-        // Fallback or just throw
-        throw new Error(error.message || 'Failed to generate insights from AI.');
-    }
-    // 5. Return structured data
+    // 4. Return structured data and prompt back to frontend
+    // The frontend will be responsible for calling the local Ollama instance
     return {
         summary: summaryData,
-        insights: insightsJson.insights
+        prompt: prompt
     };
 });
 exports.generateFinancialInsights = generateFinancialInsights;
