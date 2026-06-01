@@ -85,6 +85,16 @@ model Plan {
   updatedAt DateTime @updatedAt
 }
 
+model Note {
+  id        String   @id @default(uuid())
+  title     String
+  content   String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model User {
   id        String    @id @default(uuid())
   username  String    @unique
@@ -94,4 +104,5 @@ model User {
   accounts  Account[]
   todos     Todo[]
   plans     Plan[]
+  notes     Note[]
 }

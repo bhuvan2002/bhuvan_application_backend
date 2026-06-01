@@ -470,6 +470,57 @@ app.delete('/api/plans/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// Notes
+app.get('/api/notes', authenticateToken, async (req: any, res: any) => {
+    try {
+        const userId = req.user.id;
+        const notes = await prisma.note.findMany({
+            where: { userId },
+            orderBy: { updatedAt: 'desc' }
+        });
+        res.json(notes);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch notes' });
+    }
+});
+
+app.post('/api/notes', authenticateToken, async (req: any, res: any) => {
+    try {
+        const userId = req.user.id;
+        const note = await prisma.note.create({ 
+            data: { ...req.body, userId } 
+        });
+        res.json(note);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to create note' });
+    }
+});
+
+app.put('/api/notes/:id', authenticateToken, async (req: any, res: any) => {
+    try {
+        const userId = req.user.id;
+        const note = await prisma.note.updateMany({
+            where: { id: req.params.id, userId },
+            data: req.body
+        });
+        // fetch the updated note
+        const updated = await prisma.note.findUnique({ where: { id: req.params.id } });
+        res.json(updated);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to update note' });
+    }
+});
+
+app.delete('/api/notes/:id', authenticateToken, async (req: any, res: any) => {
+    try {
+        const userId = req.user.id;
+        await prisma.note.deleteMany({ where: { id: req.params.id, userId } });
+        res.status(204).send();
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to delete note' });
+    }
+});
+
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });
