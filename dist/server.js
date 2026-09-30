@@ -437,6 +437,57 @@ app.delete('/api/plans/:id', authenticateToken, (req, res) => __awaiter(void 0, 
         res.status(500).json({ error: 'Failed to delete plan' });
     }
 }));
+// Notes
+app.get('/api/notes', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const notes = yield prisma.note.findMany({
+            where: { userId },
+            orderBy: { updatedAt: 'desc' }
+        });
+        res.json(notes);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to fetch notes' });
+    }
+}));
+app.post('/api/notes', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const note = yield prisma.note.create({
+            data: Object.assign(Object.assign({}, req.body), { userId })
+        });
+        res.json(note);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to create note' });
+    }
+}));
+app.put('/api/notes/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const note = yield prisma.note.updateMany({
+            where: { id: req.params.id, userId },
+            data: req.body
+        });
+        // fetch the updated note
+        const updated = yield prisma.note.findUnique({ where: { id: req.params.id } });
+        res.json(updated);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to update note' });
+    }
+}));
+app.delete('/api/notes/:id', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        yield prisma.note.deleteMany({ where: { id: req.params.id, userId } });
+        res.status(204).send();
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to delete note' });
+    }
+}));
 app.listen(port, () => {
     console.log(`Server is running on port ${port}`);
 });

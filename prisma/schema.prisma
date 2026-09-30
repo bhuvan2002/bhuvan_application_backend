@@ -105,4 +105,96 @@ model User {
   todos     Todo[]
   plans     Plan[]
   notes     Note[]
+  bankAccounts BankAccount[]
+  creditCards  CreditCard[]
+  loans        Loan[]
+}
+
+model BankAccount {
+  id            String    @id @default(uuid())
+  bankName      String
+  accountName   String
+  accountNumber String?
+  accountType   String    @default("SAVINGS")
+  balance       Float
+  userId        String?
+  user          User?     @relation(fields: [userId], references: [id])
+  transactions  BankTransaction[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model BankTransaction {
+  id              String   @id @default(uuid())
+  date            DateTime
+  amount          Float
+  type            String   // "CREDIT" | "DEBIT"
+  category        String
+  description     String
+  bankAccountId   String
+  bankAccount     BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  
+  // Explicit relationships to prevent double counting
+  creditCardPaymentId String? @unique
+  loanEmiPaymentId    String? @unique
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model CreditCard {
+  id             String    @id @default(uuid())
+  cardName       String
+  provider       String
+  last4Digits    String?
+  creditLimit    Float
+  outstanding    Float     @default(0)
+  billingCycle   Int?
+  dueDate        Int?
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id])
+  expenses       CreditCardExpense[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model CreditCardExpense {
+  id             String    @id @default(uuid())
+  date           DateTime
+  amount         Float
+  category       String
+  description    String
+  creditCardId   String
+  creditCard     CreditCard @relation(fields: [creditCardId], references: [id], onDelete: Cascade)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Loan {
+  id             String    @id @default(uuid())
+  loanName       String
+  provider       String
+  totalAmount    Float
+  emiAmount      Float
+  startDate      DateTime
+  tenureMonths   Int
+  userId         String?
+  user           User?     @relation(fields: [userId], references: [id])
+  emis           LoanEMI[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model LoanEMI {
+  id             String    @id @default(uuid())
+  emiNumber      Int
+  dueDate        DateTime
+  amount         Float
+  status         String    @default("UPCOMING") // UPCOMING, PAID
+  paymentDate    DateTime?
+  loanId         String
+  loan           Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  bankAccountId  String?   
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
