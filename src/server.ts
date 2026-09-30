@@ -143,6 +143,7 @@ app.post('/api/accounts', authenticateToken, async (req, res) => {
         if (data.dueDate) data.dueDate = Number(data.dueDate);
         if (data.creditLimit) data.creditLimit = Number(data.creditLimit);
         if (data.balance) data.balance = Number(data.balance);
+        if (data.emiAmount) data.emiAmount = Number(data.emiAmount);
 
         const account = await prisma.account.create({ data });
         res.json(account);
@@ -158,6 +159,7 @@ app.put('/api/accounts/:id', authenticateToken, async (req, res) => {
         if (data.dueDate) data.dueDate = Number(data.dueDate);
         if (data.creditLimit) data.creditLimit = Number(data.creditLimit);
         if (data.balance !== undefined) data.balance = Number(data.balance);
+        if (data.emiAmount !== undefined) data.emiAmount = Number(data.emiAmount);
 
         const account = await prisma.account.update({
             where: { id: req.params.id },

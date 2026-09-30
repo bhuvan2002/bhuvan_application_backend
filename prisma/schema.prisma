@@ -37,6 +37,7 @@ model Account {
   creditLimit   Float?
   dueDate       Int?
   loanEndDate   DateTime?
+  emiAmount     Float?
   userId        String?
   user          User?     @relation(fields: [userId], references: [id])
   expenses      Expense[]
