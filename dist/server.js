@@ -325,6 +325,211 @@ app.post('/api/expenses/bulk', authenticateToken, (req, res) => __awaiter(void 0
         res.status(500).json({ error: 'Failed to add bulk expenses', details: error.message });
     }
 }));
+// --- NEW ACCOUNTS API ---
+// Bank Accounts
+app.get('/api/bank-accounts', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const accounts = yield prisma.bankAccount.findMany({ where: { userId }, include: { transactions: { orderBy: { date: 'desc' } } } });
+        res.json(accounts);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to fetch bank accounts' });
+    }
+}));
+app.post('/api/bank-accounts', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const account = yield prisma.bankAccount.create({ data: Object.assign(Object.assign({}, req.body), { userId, balance: Number(req.body.balance || 0) }) });
+        res.json(account);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to create bank account' });
+    }
+}));
+app.post('/api/bank-accounts/:id/transaction', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { amount, type, date, category, description } = req.body;
+        const numAmount = Number(amount);
+        const isoDate = date && !date.includes('T') ? new Date(date).toISOString() : date;
+        const accountId = req.params.id;
+        const incrementOp = type === 'CREDIT' ? { increment: numAmount } : { decrement: numAmount };
+        const result = yield prisma.$transaction([
+            prisma.bankTransaction.create({
+                data: { bankAccountId: accountId, amount: numAmount, type, date: isoDate, category, description }
+            }),
+            prisma.bankAccount.update({
+                where: { id: accountId },
+                data: { balance: incrementOp }
+            })
+        ]);
+        res.json(result[0]);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to add transaction' });
+    }
+}));
+// Credit Cards
+app.get('/api/credit-cards', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const cards = yield prisma.creditCard.findMany({ where: { userId }, include: { expenses: { orderBy: { date: 'desc' } } } });
+        res.json(cards);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to fetch credit cards' });
+    }
+}));
+app.post('/api/credit-cards', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const card = yield prisma.creditCard.create({ data: Object.assign(Object.assign({}, req.body), { userId, creditLimit: Number(req.body.creditLimit || 0) }) });
+        res.json(card);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to create credit card' });
+    }
+}));
+app.post('/api/credit-cards/:id/expense', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { amount, date, category, description } = req.body;
+        const numAmount = Number(amount);
+        const isoDate = date && !date.includes('T') ? new Date(date).toISOString() : date;
+        const cardId = req.params.id;
+        const result = yield prisma.$transaction([
+            prisma.creditCardExpense.create({
+                data: { creditCardId: cardId, amount: numAmount, date: isoDate, category, description }
+            }),
+            prisma.creditCard.update({
+                where: { id: cardId },
+                data: { outstanding: { increment: numAmount } }
+            })
+        ]);
+        res.json(result[0]);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to add credit card expense' });
+    }
+}));
+app.post('/api/credit-cards/:id/pay-bill', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { amount, date, bankAccountId } = req.body;
+        const numAmount = Number(amount);
+        const isoDate = date && !date.includes('T') ? new Date(date).toISOString() : date;
+        const cardId = req.params.id;
+        const card = yield prisma.creditCard.findUnique({ where: { id: cardId } });
+        if (!card)
+            return res.status(404).json({ error: 'Card not found' });
+        const result = yield prisma.$transaction([
+            prisma.bankTransaction.create({
+                data: {
+                    bankAccountId,
+                    amount: numAmount,
+                    type: 'DEBIT',
+                    date: isoDate,
+                    category: 'Credit Card Bill',
+                    description: `Payment for ${card.cardName}`,
+                    // Generating a pseudo-id for uniqueness if needed, but not required as we don't strictly link back to CC payment table in the proposed schema.
+                    // Oh wait, I added `creditCardPaymentId` in BankTransaction. We can just store a new uuid there.
+                    creditCardPaymentId: req.params.id + '-' + Date.now()
+                }
+            }),
+            prisma.bankAccount.update({
+                where: { id: bankAccountId },
+                data: { balance: { decrement: numAmount } }
+            }),
+            prisma.creditCard.update({
+                where: { id: cardId },
+                data: { outstanding: { decrement: numAmount } }
+            })
+        ]);
+        res.json(result[2]);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to pay credit card bill' });
+    }
+}));
+// Loans
+app.get('/api/loans', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const loans = yield prisma.loan.findMany({ where: { userId }, include: { emis: { orderBy: { emiNumber: 'asc' } } } });
+        res.json(loans);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to fetch loans' });
+    }
+}));
+app.post('/api/loans', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const userId = req.user.id;
+        const { loanName, provider, totalAmount, emiAmount, startDate, tenureMonths } = req.body;
+        const isoDate = startDate && !startDate.includes('T') ? new Date(startDate).toISOString() : startDate;
+        const loan = yield prisma.loan.create({
+            data: {
+                userId, loanName, provider,
+                totalAmount: Number(totalAmount),
+                emiAmount: Number(emiAmount),
+                startDate: isoDate,
+                tenureMonths: Number(tenureMonths)
+            }
+        });
+        // Auto-generate EMIs
+        let emis = [];
+        let currentMonth = new Date(isoDate);
+        for (let i = 1; i <= Number(tenureMonths); i++) {
+            currentMonth.setMonth(currentMonth.getMonth() + 1);
+            emis.push({
+                loanId: loan.id,
+                emiNumber: i,
+                dueDate: new Date(currentMonth.toISOString()),
+                amount: Number(emiAmount),
+                status: 'UPCOMING'
+            });
+        }
+        yield prisma.loanEMI.createMany({ data: emis });
+        res.json(loan);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to create loan' });
+    }
+}));
+app.post('/api/loans/emi/:emiId/pay', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const { bankAccountId, paymentDate } = req.body;
+        const emiId = req.params.emiId;
+        const isoDate = paymentDate && !paymentDate.includes('T') ? new Date(paymentDate).toISOString() : paymentDate;
+        const emi = yield prisma.loanEMI.findUnique({ where: { id: emiId }, include: { loan: true } });
+        if (!emi || emi.status === 'PAID')
+            return res.status(400).json({ error: 'EMI not found or already paid' });
+        const result = yield prisma.$transaction([
+            prisma.bankTransaction.create({
+                data: {
+                    bankAccountId,
+                    amount: emi.amount,
+                    type: 'DEBIT',
+                    date: isoDate || new Date().toISOString(),
+                    category: 'Loan EMI',
+                    description: `EMI Payment for ${emi.loan.loanName}`,
+                    loanEmiPaymentId: emi.id
+                }
+            }),
+            prisma.bankAccount.update({
+                where: { id: bankAccountId },
+                data: { balance: { decrement: emi.amount } }
+            }),
+            prisma.loanEMI.update({
+                where: { id: emiId },
+                data: { status: 'PAID', paymentDate: isoDate || new Date().toISOString(), bankAccountId }
+            })
+        ]);
+        res.json(result[2]);
+    }
+    catch (error) {
+        res.status(500).json({ error: 'Failed to pay EMI' });
+    }
+}));
+// --- END NEW ACCOUNTS API ---
 // AI Insights
 app.post('/api/ai/analyze-finance', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     var _a;
