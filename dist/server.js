@@ -165,6 +165,8 @@ app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, voi
             data.creditLimit = Number(data.creditLimit);
         if (data.balance)
             data.balance = Number(data.balance);
+        if (data.emiAmount)
+            data.emiAmount = Number(data.emiAmount);
         const account = yield prisma.account.create({ data });
         res.json(account);
     }
@@ -183,6 +185,8 @@ app.put('/api/accounts/:id', authenticateToken, (req, res) => __awaiter(void 0, 
             data.creditLimit = Number(data.creditLimit);
         if (data.balance !== undefined)
             data.balance = Number(data.balance);
+        if (data.emiAmount !== undefined)
+            data.emiAmount = Number(data.emiAmount);
         const account = yield prisma.account.update({
             where: { id: req.params.id },
             data

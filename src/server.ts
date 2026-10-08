@@ -139,11 +139,15 @@ app.get('/api/accounts', authenticateToken, async (req, res) => {
 app.post('/api/accounts', authenticateToken, async (req, res) => {
     try {
         let data = { ...req.body };
+        Object.keys(data).forEach(key => {
+            if (data[key] === '') data[key] = null;
+        });
         if (data.loanEndDate) data.loanEndDate = new Date(data.loanEndDate).toISOString();
-        if (data.dueDate) data.dueDate = Number(data.dueDate);
-        if (data.creditLimit) data.creditLimit = Number(data.creditLimit);
-        if (data.balance) data.balance = Number(data.balance);
-        if (data.emiAmount) data.emiAmount = Number(data.emiAmount);
+        if (data.dueDate !== null && data.dueDate !== undefined) data.dueDate = Number(data.dueDate);
+        if (data.billingCycle !== null && data.billingCycle !== undefined) data.billingCycle = Number(data.billingCycle);
+        if (data.creditLimit !== null && data.creditLimit !== undefined) data.creditLimit = Number(data.creditLimit);
+        if (data.balance !== null && data.balance !== undefined) data.balance = Number(data.balance);
+        if (data.emiAmount !== null && data.emiAmount !== undefined) data.emiAmount = Number(data.emiAmount);
 
         const account = await prisma.account.create({ data });
         res.json(account);
@@ -155,19 +159,31 @@ app.post('/api/accounts', authenticateToken, async (req, res) => {
 app.put('/api/accounts/:id', authenticateToken, async (req, res) => {
     try {
         let data = { ...req.body };
+        Object.keys(data).forEach(key => {
+            if (data[key] === '') data[key] = null;
+        });
         if (data.loanEndDate) data.loanEndDate = new Date(data.loanEndDate).toISOString();
-        if (data.dueDate) data.dueDate = Number(data.dueDate);
-        if (data.creditLimit) data.creditLimit = Number(data.creditLimit);
-        if (data.balance !== undefined) data.balance = Number(data.balance);
-        if (data.emiAmount !== undefined) data.emiAmount = Number(data.emiAmount);
+        if (data.dueDate !== null && data.dueDate !== undefined) data.dueDate = Number(data.dueDate);
+        if (data.billingCycle !== null && data.billingCycle !== undefined) data.billingCycle = Number(data.billingCycle);
+        if (data.creditLimit !== null && data.creditLimit !== undefined) data.creditLimit = Number(data.creditLimit);
+        if (data.balance !== null && data.balance !== undefined) data.balance = Number(data.balance);
+        if (data.emiAmount !== null && data.emiAmount !== undefined) data.emiAmount = Number(data.emiAmount);
+        
+        delete data.id;
+        delete data.createdAt;
+        delete data.updatedAt;
+        delete data.expenses;
+        delete data.user;
+        delete data.userId;
 
         const account = await prisma.account.update({
             where: { id: req.params.id },
             data
         });
         res.json(account);
-    } catch (error) {
-        res.status(500).json({ error: 'Failed to update account' });
+    } catch (error: any) {
+        console.error("Account update error:", error);
+        res.status(500).json({ error: 'Failed to update account', details: error.message });
     }
 });
 
@@ -357,6 +373,117 @@ app.post('/api/expenses/bulk', authenticateToken, async (req, res) => {
         res.status(500).json({ error: 'Failed to add bulk expenses', details: error.message });
     }
 });
+
+app.put('/api/expenses/:id', authenticateToken, async (req, res) => {
+    try {
+        const oldExpense = await prisma.expense.findUnique({ where: { id: req.params.id }, include: { account: true } });
+        if (!oldExpense) return res.status(404).json({ error: 'Expense not found' });
+
+        let { accountId, toAccountId, amount, type, date, category, description } = req.body;
+        if (date && typeof date === 'string' && !date.includes('T')) {
+            date = new Date(date).toISOString();
+        }
+        const newAmount = Number(amount);
+
+        const newAccount = await prisma.account.findUnique({ where: { id: accountId } });
+        if (!newAccount) return res.status(404).json({ error: 'Account not found' });
+
+        let operations = [];
+
+        // 1. REVERSE OLD
+        if (oldExpense.type === 'TRANSFER' && oldExpense.toAccountId) {
+            const oldToAccount = await prisma.account.findUnique({ where: { id: oldExpense.toAccountId } });
+            if (oldToAccount) {
+                const isDebtAccount = oldExpense.account.type === 'CREDIT_CARD' || oldExpense.account.type === 'LOAN';
+                const isToDebtAccount = oldToAccount.type === 'CREDIT_CARD' || oldToAccount.type === 'LOAN';
+                const fromOp = isDebtAccount ? { decrement: oldExpense.amount } : { increment: oldExpense.amount };
+                const toOp = isToDebtAccount ? { increment: oldExpense.amount } : { decrement: oldExpense.amount };
+                operations.push(prisma.account.update({ where: { id: oldExpense.accountId }, data: { balance: fromOp } }));
+                operations.push(prisma.account.update({ where: { id: oldExpense.toAccountId }, data: { balance: toOp } }));
+            }
+        } else {
+            const isDebtAccount = oldExpense.account.type === 'CREDIT_CARD' || oldExpense.account.type === 'LOAN';
+            const reverseIncrementOp = isDebtAccount ? { decrement: oldExpense.amount } : { increment: oldExpense.amount };
+            const reverseDecrementOp = isDebtAccount ? { increment: oldExpense.amount } : { decrement: oldExpense.amount };
+            operations.push(prisma.account.update({ 
+                where: { id: oldExpense.accountId }, 
+                data: { balance: oldExpense.type === 'CREDIT' ? reverseIncrementOp : reverseDecrementOp } 
+            }));
+        }
+
+        // 2. APPLY NEW
+        if (type === 'TRANSFER' && toAccountId) {
+            const newToAccount = await prisma.account.findUnique({ where: { id: toAccountId } });
+            if (newToAccount) {
+                const isDebtAccount = newAccount.type === 'CREDIT_CARD' || newAccount.type === 'LOAN';
+                const isToDebtAccount = newToAccount.type === 'CREDIT_CARD' || newToAccount.type === 'LOAN';
+                const fromOp = isDebtAccount ? { increment: newAmount } : { decrement: newAmount };
+                const toOp = isToDebtAccount ? { decrement: newAmount } : { increment: newAmount };
+                operations.push(prisma.account.update({ where: { id: accountId }, data: { balance: fromOp } }));
+                operations.push(prisma.account.update({ where: { id: toAccountId }, data: { balance: toOp } }));
+            }
+        } else {
+            const isDebtAccount = newAccount.type === 'CREDIT_CARD' || newAccount.type === 'LOAN';
+            const incrementOp = isDebtAccount ? { increment: newAmount } : { decrement: newAmount };
+            const decrementOp = isDebtAccount ? { decrement: newAmount } : { increment: newAmount };
+            operations.push(prisma.account.update({ 
+                where: { id: accountId }, 
+                data: { balance: type === 'CREDIT' ? decrementOp : incrementOp } 
+            }));
+        }
+
+        // 3. UPDATE EXPENSE
+        operations.push(prisma.expense.update({
+            where: { id: req.params.id },
+            data: { accountId, toAccountId, amount: newAmount, type: type || 'DEBIT', date, category, description }
+        }));
+
+        const results = await prisma.$transaction(operations);
+        res.json(results[results.length - 1]);
+    } catch (error: any) {
+        console.error('Update expense error:', error);
+        res.status(500).json({ error: 'Failed to update expense', details: error.message });
+    }
+});
+
+app.delete('/api/expenses/:id', authenticateToken, async (req, res) => {
+    try {
+        const oldExpense = await prisma.expense.findUnique({ where: { id: req.params.id }, include: { account: true } });
+        if (!oldExpense) return res.status(404).json({ error: 'Expense not found' });
+
+        let operations = [];
+
+        // REVERSE OLD
+        if (oldExpense.type === 'TRANSFER' && oldExpense.toAccountId) {
+            const oldToAccount = await prisma.account.findUnique({ where: { id: oldExpense.toAccountId } });
+            if (oldToAccount) {
+                const isDebtAccount = oldExpense.account.type === 'CREDIT_CARD' || oldExpense.account.type === 'LOAN';
+                const isToDebtAccount = oldToAccount.type === 'CREDIT_CARD' || oldToAccount.type === 'LOAN';
+                const fromOp = isDebtAccount ? { decrement: oldExpense.amount } : { increment: oldExpense.amount };
+                const toOp = isToDebtAccount ? { increment: oldExpense.amount } : { decrement: oldExpense.amount };
+                operations.push(prisma.account.update({ where: { id: oldExpense.accountId }, data: { balance: fromOp } }));
+                operations.push(prisma.account.update({ where: { id: oldExpense.toAccountId }, data: { balance: toOp } }));
+            }
+        } else {
+            const isDebtAccount = oldExpense.account.type === 'CREDIT_CARD' || oldExpense.account.type === 'LOAN';
+            const reverseIncrementOp = isDebtAccount ? { decrement: oldExpense.amount } : { increment: oldExpense.amount };
+            const reverseDecrementOp = isDebtAccount ? { increment: oldExpense.amount } : { decrement: oldExpense.amount };
+            operations.push(prisma.account.update({ 
+                where: { id: oldExpense.accountId }, 
+                data: { balance: oldExpense.type === 'CREDIT' ? reverseIncrementOp : reverseDecrementOp } 
+            }));
+        }
+
+        operations.push(prisma.expense.delete({ where: { id: req.params.id } }));
+
+        await prisma.$transaction(operations);
+        res.status(204).send();
+    } catch (error: any) {
+        console.error('Delete expense error:', error);
+        res.status(500).json({ error: 'Failed to delete expense', details: error.message });
+    }
+});
+
 
 // --- NEW ACCOUNTS API ---
 
