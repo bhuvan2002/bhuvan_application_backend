@@ -158,7 +158,7 @@ app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, voi
     try {
         let data = Object.assign({}, req.body);
         Object.keys(data).forEach(key => {
-            if (data[key] === '')
+            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key))
                 data[key] = null;
         });
         if (data.loanEndDate)
@@ -184,7 +184,7 @@ app.put('/api/accounts/:id', authenticateToken, (req, res) => __awaiter(void 0, 
     try {
         let data = Object.assign({}, req.body);
         Object.keys(data).forEach(key => {
-            if (data[key] === '')
+            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key))
                 data[key] = null;
         });
         if (data.loanEndDate)

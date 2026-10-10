@@ -140,7 +140,9 @@ app.post('/api/accounts', authenticateToken, async (req, res) => {
     try {
         let data = { ...req.body };
         Object.keys(data).forEach(key => {
-            if (data[key] === '') data[key] = null;
+            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key)) {
+                data[key] = null;
+            }
         });
         if (data.loanEndDate) data.loanEndDate = new Date(data.loanEndDate).toISOString();
         if (data.dueDate !== null && data.dueDate !== undefined) data.dueDate = Number(data.dueDate);
@@ -160,7 +162,9 @@ app.put('/api/accounts/:id', authenticateToken, async (req, res) => {
     try {
         let data = { ...req.body };
         Object.keys(data).forEach(key => {
-            if (data[key] === '') data[key] = null;
+            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key)) {
+                data[key] = null;
+            }
         });
         if (data.loanEndDate) data.loanEndDate = new Date(data.loanEndDate).toISOString();
         if (data.dueDate !== null && data.dueDate !== undefined) data.dueDate = Number(data.dueDate);
