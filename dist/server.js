@@ -29,6 +29,7 @@ const client_1 = require("@prisma/client");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const financeInsightService_1 = require("./services/ai/financeInsightService");
+const creditCardService_1 = require("./services/creditCardService");
 const app = (0, express_1.default)();
 const prisma = new client_1.PrismaClient();
 const port = process.env.PORT || 3000;
@@ -148,7 +149,8 @@ app.delete('/api/trades/:id', authenticateToken, (req, res) => __awaiter(void 0,
 app.get('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, void 0, void 0, function* () {
     try {
         const accounts = yield prisma.account.findMany();
-        res.json(accounts);
+        const enriched = yield (0, creditCardService_1.enrichAccountsWithCreditCardDetails)(prisma, accounts);
+        res.json(enriched);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to fetch accounts' });
@@ -158,8 +160,9 @@ app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, voi
     try {
         let data = Object.assign({}, req.body);
         Object.keys(data).forEach(key => {
-            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key))
+            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key)) {
                 data[key] = null;
+            }
         });
         if (data.loanEndDate)
             data.loanEndDate = new Date(data.loanEndDate).toISOString();
@@ -174,7 +177,8 @@ app.post('/api/accounts', authenticateToken, (req, res) => __awaiter(void 0, voi
         if (data.emiAmount !== null && data.emiAmount !== undefined)
             data.emiAmount = Number(data.emiAmount);
         const account = yield prisma.account.create({ data });
-        res.json(account);
+        const [enriched] = yield (0, creditCardService_1.enrichAccountsWithCreditCardDetails)(prisma, [account]);
+        res.json(enriched || account);
     }
     catch (error) {
         res.status(500).json({ error: 'Failed to create account' });
@@ -184,8 +188,9 @@ app.put('/api/accounts/:id', authenticateToken, (req, res) => __awaiter(void 0, 
     try {
         let data = Object.assign({}, req.body);
         Object.keys(data).forEach(key => {
-            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key))
+            if (data[key] === '' && !['name', 'bankName', 'accountNumber', 'type'].includes(key)) {
                 data[key] = null;
+            }
         });
         if (data.loanEndDate)
             data.loanEndDate = new Date(data.loanEndDate).toISOString();
@@ -209,7 +214,8 @@ app.put('/api/accounts/:id', authenticateToken, (req, res) => __awaiter(void 0, 
             where: { id: req.params.id },
             data
         });
-        res.json(account);
+        const [enriched] = yield (0, creditCardService_1.enrichAccountsWithCreditCardDetails)(prisma, [account]);
+        res.json(enriched || account);
     }
     catch (error) {
         console.error("Account update error:", error);

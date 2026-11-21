@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { generateFinancialInsights } from './services/ai/financeInsightService';
+import { enrichAccountsWithCreditCardDetails } from './services/creditCardService';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -130,7 +131,8 @@ app.delete('/api/trades/:id', authenticateToken, async (req, res) => {
 app.get('/api/accounts', authenticateToken, async (req, res) => {
     try {
         const accounts = await prisma.account.findMany();
-        res.json(accounts);
+        const enriched = await enrichAccountsWithCreditCardDetails(prisma, accounts);
+        res.json(enriched);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch accounts' });
     }
@@ -152,7 +154,8 @@ app.post('/api/accounts', authenticateToken, async (req, res) => {
         if (data.emiAmount !== null && data.emiAmount !== undefined) data.emiAmount = Number(data.emiAmount);
 
         const account = await prisma.account.create({ data });
-        res.json(account);
+        const [enriched] = await enrichAccountsWithCreditCardDetails(prisma, [account]);
+        res.json(enriched || account);
     } catch (error) {
         res.status(500).json({ error: 'Failed to create account' });
     }
@@ -184,7 +187,8 @@ app.put('/api/accounts/:id', authenticateToken, async (req, res) => {
             where: { id: req.params.id },
             data
         });
-        res.json(account);
+        const [enriched] = await enrichAccountsWithCreditCardDetails(prisma, [account]);
+        res.json(enriched || account);
     } catch (error: any) {
         console.error("Account update error:", error);
         res.status(500).json({ error: 'Failed to update account', details: error.message });
